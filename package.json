@@ -5,6 +5,9 @@
   "private": true,
   "scripts": {
     "analyze": "bun run index.ts analyze",
+    "shortlist": "bun run index.ts shortlist",
+    "inspect": "bun run index.ts inspect",
+    "topics": "bun run index.ts topics",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
