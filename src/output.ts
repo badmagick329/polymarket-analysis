@@ -52,6 +52,7 @@ export function printInspection(input: {
   wallet: string;
   rows: WalletMarketInspection[];
   limit: number;
+  afterDate?: Date | null;
 }): void {
   const realizedPnl = input.rows.reduce((total, row) => total + row.realizedPnl, 0);
   const totalBought = input.rows.reduce((total, row) => total + row.totalBought, 0);
@@ -61,6 +62,9 @@ export function printInspection(input: {
 
   console.log(`Wallet: ${input.wallet}`);
   console.log(`Topic: ${input.topic}`);
+  if (input.afterDate) {
+    console.log(`After: ${formatDate(input.afterDate)}`);
+  }
   console.log(
     `Markets: ${input.rows.length} | Positions: ${positions} | Positive markets: ${positiveMarkets} | Realized PnL: ${formatUsd(realizedPnl)} | ROI: ${formatPercent(roi)}`,
   );

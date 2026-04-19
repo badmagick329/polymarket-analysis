@@ -10,6 +10,7 @@ export class Store {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.migrate();
   }
 
@@ -117,6 +118,36 @@ export class Store {
       });
   }
 
+  getWalletMarketDates(wallet: string, conditionId: string): { openedAt: Date | null; closedAt: Date | null } | undefined {
+    const row = this.db
+      .query(`
+        select opened_at, closed_at
+        from wallet_market_dates
+        where proxy_wallet = $proxy_wallet and condition_id = $condition_id
+      `)
+      .get({ $proxy_wallet: wallet.toLowerCase(), $condition_id: conditionId }) as { opened_at: string | null; closed_at: string | null } | null;
+    if (!row) return undefined;
+    return {
+      openedAt: row.opened_at ? new Date(row.opened_at) : null,
+      closedAt: row.closed_at ? new Date(row.closed_at) : null,
+    };
+  }
+
+  saveWalletMarketDates(wallet: string, conditionId: string, dates: { openedAt: Date | null; closedAt: Date | null }): void {
+    this.db
+      .prepare(`
+        insert or replace into wallet_market_dates (proxy_wallet, condition_id, opened_at, closed_at, fetched_at)
+        values ($proxy_wallet, $condition_id, $opened_at, $closed_at, $fetched_at)
+      `)
+      .run({
+        $proxy_wallet: wallet.toLowerCase(),
+        $condition_id: conditionId,
+        $opened_at: dates.openedAt?.toISOString() ?? null,
+        $closed_at: dates.closedAt?.toISOString() ?? null,
+        $fetched_at: new Date().toISOString(),
+      });
+  }
+
   saveAnalysisRun(input: {
     tagId: string;
     tagLabel: string;
@@ -191,6 +222,15 @@ export class Store {
         proxy_wallet text primary key,
         latest_activity_year integer,
         fetched_at text not null
+      );
+
+      create table if not exists wallet_market_dates (
+        proxy_wallet text not null,
+        condition_id text not null,
+        opened_at text,
+        closed_at text,
+        fetched_at text not null,
+        primary key (proxy_wallet, condition_id)
       );
     `);
   }

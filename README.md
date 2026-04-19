@@ -68,6 +68,20 @@ You can use either:
 - Were the markets old or recent?
 - Was the wallet active before the market closed?
 
+You can also show only market results after a specific date:
+
+```bash
+bun run index.ts inspect 0x8c2f...64fa politics --limit 10 --after 2023-01-01
+```
+
+The date must use `YYYY-MM-DD`.
+
+For this filter, the CLI uses the best available row date in this order:
+
+1. `closed`
+2. `positionOpened`
+3. `marketOpened`
+
 ## Metrics
 
 ### `rank`
@@ -166,6 +180,18 @@ This is useful when `positionOpened` is unknown.
 
 Date the position or market closed, based on available public API data.
 
+### `--after`
+
+Filters inspected wallet rows to results after a specific date.
+
+Example:
+
+```bash
+bun run index.ts inspect 0x8c2f...64fa politics --after 2023-01-01
+```
+
+This is useful when you only care about recent market results from that wallet.
+
 ### `outcomes`
 
 The outcome side the wallet held, such as `Yes` or `No`.
@@ -235,6 +261,8 @@ The best workflow is:
 This tool uses public Polymarket APIs only.
 
 Results are cached locally in SQLite under `data/` so repeated runs are faster.
+
+Cached data includes market data, market positions, wallet activity years, and wallet-market date metadata used by `inspect`.
 
 The data is useful for research, but it has limitations:
 

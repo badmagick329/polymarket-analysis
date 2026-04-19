@@ -12,10 +12,18 @@ type CliOptions = {
   topic: string | undefined;
   limit: number;
   activeWithinYears: number | null;
+  afterDate: Date | null;
 };
 
 export async function runCli(args: string[]): Promise<void> {
-  const options = parseArgs(args);
+  let options: CliOptions;
+  try {
+    options = parseArgs(args);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    printUsage();
+    return;
+  }
 
   if (!isValidCommand(options)) {
     printUsage();
@@ -39,13 +47,9 @@ export async function runCli(args: string[]): Promise<void> {
       printInspection({
         topic: tagName(context.tag),
         wallet: wallet.wallet,
-        rows: inspectWalletMarkets(
-          wallet.wallet,
-          context.markets,
-          context.positions,
-          await loadWalletMarketDates(wallet.wallet, context.markets, api),
-        ),
+        rows: await inspectWalletRows(wallet.wallet, context.markets, context.positions, options.limit, options.afterDate, store, api),
         limit: options.limit,
+        afterDate: options.afterDate,
       });
       return;
     }
@@ -78,6 +82,35 @@ export async function runCli(args: string[]): Promise<void> {
   }
 }
 
+async function inspectWalletRows(
+  wallet: string,
+  markets: GammaMarket[],
+  positions: MarketPosition[],
+  limit: number,
+  afterDate: Date | null,
+  store: Store,
+  api: PolymarketApi,
+) {
+  const rows = inspectWalletMarkets(wallet, markets, positions);
+  const candidateRows = afterDate ? rows.filter((row) => inspectResultDate(row) === null || inspectResultDate(row)! >= afterDate) : rows;
+  const rowsToShow = candidateRows.slice(0, limit);
+  const datesByConditionId = new Map<string, { openedAt: Date | null; closedAt: Date | null }>();
+
+  for (const row of rowsToShow) {
+    let dates = store.getWalletMarketDates(wallet, row.conditionId);
+    if (!dates) {
+      dates = await fetchWalletMarketDates(wallet, row.conditionId, markets, api);
+      store.saveWalletMarketDates(wallet, row.conditionId, dates);
+    }
+    datesByConditionId.set(row.conditionId, dates);
+  }
+
+  const rowsWithDates = inspectWalletMarkets(wallet, markets, positions, datesByConditionId);
+  return afterDate
+    ? rowsWithDates.filter((row) => inspectResultDate(row) === null || inspectResultDate(row)! >= afterDate)
+    : rowsWithDates;
+}
+
 function parseArgs(args: string[]): CliOptions {
   const command = args[0];
   const wallet = command === "inspect" ? args[1] : undefined;
@@ -91,7 +124,9 @@ function parseArgs(args: string[]): CliOptions {
     parsedActiveWithinYears !== null && Number.isInteger(parsedActiveWithinYears) && parsedActiveWithinYears >= 0
       ? parsedActiveWithinYears
       : null;
-  return { command, wallet, topic, limit, activeWithinYears };
+  const afterDateIndex = args.indexOf("--after");
+  const afterDate = afterDateIndex >= 0 ? parseDateArg(args[afterDateIndex + 1]) : null;
+  return { command, wallet, topic, limit, activeWithinYears, afterDate };
 }
 
 function isValidCommand(options: CliOptions): boolean {
@@ -195,28 +230,24 @@ function resolveWallet(input: string, positions: MarketPosition[]): { kind: "mat
   return { kind: "not_found", candidates: [] };
 }
 
-async function loadWalletMarketDates(
+async function fetchWalletMarketDates(
   wallet: string,
+  conditionId: string,
   markets: GammaMarket[],
   api: PolymarketApi,
-): Promise<Map<string, { openedAt: Date | null; closedAt: Date | null }>> {
-  const dates = new Map<string, { openedAt: Date | null; closedAt: Date | null }>();
+) {
+  const market = markets.find((candidate) => candidate.conditionId === conditionId);
+  const [trades, closedPositions] = await Promise.all([
+    api.fetchTradesForWalletMarket(wallet, conditionId),
+    api.fetchClosedPositionsForWalletMarket(wallet, conditionId),
+  ]);
 
-  for (const market of markets) {
-    const [trades, closedPositions] = await Promise.all([
-      api.fetchTradesForWalletMarket(wallet, market.conditionId),
-      api.fetchClosedPositionsForWalletMarket(wallet, market.conditionId),
-    ]);
+  const openedAt = minTimestampDate(trades.map((trade) => trade.timestamp));
+  const closedAt =
+    maxTimestampDate(closedPositions.map((position) => position.timestamp).filter((timestamp) => timestamp !== undefined)) ??
+    parseDate(market?.closedTime ?? market?.endDate ?? null);
 
-    const openedAt = minTimestampDate(trades.map((trade) => trade.timestamp));
-    const closedAt =
-      maxTimestampDate(closedPositions.map((position) => position.timestamp).filter((timestamp) => timestamp !== undefined)) ??
-      parseDate(market.closedTime ?? market.endDate ?? null);
-
-    dates.set(market.conditionId, { openedAt, closedAt });
-  }
-
-  return dates;
+  return { openedAt, closedAt };
 }
 
 function minTimestampDate(timestamps: number[]): Date | null {
@@ -237,9 +268,24 @@ function parseDate(value: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function parseDateArg(value: string | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("--after must use YYYY-MM-DD");
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("--after must use a valid YYYY-MM-DD date");
+  }
+  return date;
+}
+
+function inspectResultDate(row: { closedAt: Date | null; openedAt: Date | null; marketOpenedAt: Date | null }): Date | null {
+  return row.closedAt ?? row.openedAt ?? row.marketOpenedAt;
+}
+
 function printUsage(): void {
   console.log("Usage: bun run index.ts analyze <topic> [--limit N] [--active-within-years N]");
-  console.log("Usage: bun run index.ts inspect <wallet> <topic> [--limit N]");
+  console.log("Usage: bun run index.ts inspect <wallet> <topic> [--limit N] [--after YYYY-MM-DD]");
   console.log("Example: bun run index.ts analyze politics --limit 25 --active-within-years 2");
-  console.log("Example: bun run index.ts inspect 0x8c2f...64fa politics --limit 10");
+  console.log("Example: bun run index.ts inspect 0x8c2f...64fa politics --limit 10 --after 2023-01-01");
 }
