@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { filterTopics, listTopics } from "../src/cli.ts";
 import { resolveTopic } from "../src/topic.ts";
 import type { GammaTag } from "../src/types.ts";
 
@@ -27,5 +28,20 @@ describe("resolveTopic", () => {
     if (result.kind === "ambiguous") {
       expect(result.candidates.map((tag) => tag.id)).toEqual(["2", "188"]);
     }
+  });
+});
+
+describe("filterTopics", () => {
+  test("matches label and slug case-insensitively", () => {
+    expect(filterTopics(tags, "POLIT").map((tag) => tag.id)).toEqual(["2", "188"]);
+    expect(filterTopics(tags, "uptspt").map((tag) => tag.id)).toEqual(["188"]);
+  });
+
+  test("returns all topics when search is empty", () => {
+    expect(filterTopics(tags, "").map((tag) => tag.id)).toEqual(["2", "188", "3"]);
+  });
+
+  test("listTopics truncates by limit", () => {
+    expect(listTopics(tags, null, 2).map((tag) => tag.id)).toEqual(["2", "188"]);
   });
 });

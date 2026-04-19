@@ -72,6 +72,14 @@ export type WalletMarketAggregate = {
   positions: number;
 };
 
+export type WalletMarketRow = WalletMarketAggregate & {
+  question: string;
+  marketSlug: string;
+  outcomes: string;
+  marketOpenedAt: Date | null;
+  closedAt: Date | null;
+};
+
 export type WalletScore = {
   rank: number;
   wallet: string;
@@ -99,6 +107,11 @@ export type WalletMarketInspection = {
   openedAt: Date | null;
   marketOpenedAt: Date | null;
   closedAt: Date | null;
+};
+
+export type ShortlistEntry = {
+  score: WalletScore;
+  rows: WalletMarketRow[];
 };
 
 export type AnalysisSummary = {

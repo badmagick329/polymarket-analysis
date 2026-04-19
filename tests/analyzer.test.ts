@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { aggregateWalletMarkets, inspectWalletMarkets, scoreWallets } from "../src/analyzer.ts";
+import {
+  aggregateWalletMarkets,
+  buildWalletMarketRows,
+  filterRowsClosedAfter,
+  inspectWalletMarkets,
+  rowsToAggregates,
+  scoreWallets,
+  topRowsForWallet,
+} from "../src/analyzer.ts";
+import { parseDateArg } from "../src/cli.ts";
 import { config } from "../src/config.ts";
 import type { MarketPosition } from "../src/types.ts";
 
@@ -74,6 +83,79 @@ describe("inspectWalletMarkets", () => {
     expect(rows[0]?.question).toBe("Market two?");
   });
 });
+
+describe("date-aware rows", () => {
+  test("parseDateArg accepts YYYY-MM-DD and rejects invalid dates", () => {
+    expect(parseDateArg("2024-01-31")?.toISOString()).toBe("2024-01-31T00:00:00.000Z");
+    expect(() => parseDateArg("2024/01/31")).toThrow("--after must use YYYY-MM-DD");
+    expect(() => parseDateArg("2024-02-31")).toThrow("--after must use a valid YYYY-MM-DD date");
+    expect(() => parseDateArg("2024-99-99")).toThrow("--after must use a valid YYYY-MM-DD date");
+  });
+
+  test("filterRowsClosedAfter excludes rows closed before cutoff or missing closed date", () => {
+    const rows = buildWalletMarketRows(
+      [
+        market({ conditionId: "old", closedTime: "2022-12-31T00:00:00Z" }),
+        market({ conditionId: "new", closedTime: "2023-01-01T00:00:00Z" }),
+        market({ conditionId: "unknown" }),
+      ],
+      [
+        position({ wallet: "0xabc", conditionId: "old", asset: "yes", realizedPnl: 5, totalBought: 100 }),
+        position({ wallet: "0xabc", conditionId: "new", asset: "yes", realizedPnl: 20, totalBought: 100 }),
+        position({ wallet: "0xabc", conditionId: "unknown", asset: "yes", realizedPnl: 30, totalBought: 100 }),
+      ],
+    );
+
+    expect(filterRowsClosedAfter(rows, new Date("2023-01-01T00:00:00.000Z")).map((row) => row.marketConditionId)).toEqual(["new"]);
+  });
+
+  test("score aggregation after date filter uses only filtered rows", () => {
+    const appConfig = { ...config, minResolvedMarkets: 1, minResolvedPositions: 1, minTotalBought: 1 };
+    const rows = buildWalletMarketRows(
+      [
+        market({ conditionId: "old", closedTime: "2022-01-01T00:00:00Z" }),
+        market({ conditionId: "new", closedTime: "2024-01-01T00:00:00Z" }),
+      ],
+      [
+        position({ wallet: "0xabc", conditionId: "old", asset: "yes", realizedPnl: 1000, totalBought: 1000 }),
+        position({ wallet: "0xabc", conditionId: "new", asset: "yes", realizedPnl: 10, totalBought: 100 }),
+      ],
+    );
+
+    const filtered = filterRowsClosedAfter(rows, new Date("2023-01-01T00:00:00.000Z"));
+    const scores = scoreWallets("Politics", rowsToAggregates(filtered), appConfig);
+
+    expect(scores[0]?.realizedPnl).toBe(10);
+    expect(scores[0]?.resolvedMarkets).toBe(1);
+  });
+
+  test("shortlist rows select top wins by realized PnL", () => {
+    const rows = buildWalletMarketRows(
+      [
+        market({ conditionId: "small", closedTime: "2024-01-01T00:00:00Z" }),
+        market({ conditionId: "big", closedTime: "2024-01-02T00:00:00Z" }),
+      ],
+      [
+        position({ wallet: "0xabc", conditionId: "small", asset: "yes", realizedPnl: 5, totalBought: 100 }),
+        position({ wallet: "0xabc", conditionId: "big", asset: "yes", realizedPnl: 50, totalBought: 100 }),
+      ],
+    );
+
+    expect(topRowsForWallet(rows, "0xabc", 1).map((row) => row.marketConditionId)).toEqual(["big"]);
+  });
+});
+
+function market(input: { conditionId: string; closedTime?: string }) {
+  return {
+    id: input.conditionId,
+    question: `${input.conditionId}?`,
+    conditionId: input.conditionId,
+    slug: input.conditionId,
+    closed: true,
+    umaResolutionStatus: "resolved",
+    closedTime: input.closedTime,
+  };
+}
 
 function position(input: {
   wallet: string;

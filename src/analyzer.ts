@@ -1,5 +1,12 @@
 import type { AppConfig } from "./config.ts";
-import type { GammaMarket, MarketPosition, WalletMarketAggregate, WalletMarketInspection, WalletScore } from "./types.ts";
+import type {
+  GammaMarket,
+  MarketPosition,
+  WalletMarketAggregate,
+  WalletMarketInspection,
+  WalletMarketRow,
+  WalletScore,
+} from "./types.ts";
 
 export function aggregateWalletMarkets(positions: MarketPosition[]): WalletMarketAggregate[] {
   const byWalletMarket = new Map<string, WalletMarketAggregate>();
@@ -69,6 +76,53 @@ export function scoreWallets(topic: string, aggregates: WalletMarketAggregate[],
   return scores
     .sort((a, b) => b.edgeScore - a.edgeScore || b.realizedPnl - a.realizedPnl)
     .map((score, index) => ({ ...score, rank: index + 1 }));
+}
+
+export function buildWalletMarketRows(markets: GammaMarket[], positions: MarketPosition[]): WalletMarketRow[] {
+  const marketByConditionId = new Map(markets.map((market) => [market.conditionId, market]));
+  const positionsByWalletMarket = new Map<string, MarketPosition[]>();
+
+  for (const position of positions) {
+    const key = `${position.proxyWallet}:${position.conditionId}`;
+    const current = positionsByWalletMarket.get(key) ?? [];
+    current.push(position);
+    positionsByWalletMarket.set(key, current);
+  }
+
+  return aggregateWalletMarkets(positions).map((aggregate) => {
+    const market = marketByConditionId.get(aggregate.marketConditionId);
+    const marketPositions = positionsByWalletMarket.get(`${aggregate.wallet}:${aggregate.marketConditionId}`) ?? [];
+    return {
+      ...aggregate,
+      question: market?.question ?? aggregate.marketConditionId,
+      marketSlug: market?.slug ?? "",
+      outcomes: [...new Set(marketPositions.map((position) => position.outcome))].join(", "),
+      marketOpenedAt: marketOpenedAt(market),
+      closedAt: marketClosedAt(market),
+    };
+  });
+}
+
+export function filterRowsClosedAfter(rows: WalletMarketRow[], afterDate: Date | null): WalletMarketRow[] {
+  if (!afterDate) return rows;
+  return rows.filter((row) => row.closedAt !== null && row.closedAt >= afterDate);
+}
+
+export function rowsToAggregates(rows: WalletMarketRow[]): WalletMarketAggregate[] {
+  return rows.map((row) => ({
+    wallet: row.wallet,
+    marketConditionId: row.marketConditionId,
+    realizedPnl: row.realizedPnl,
+    totalBought: row.totalBought,
+    positions: row.positions,
+  }));
+}
+
+export function topRowsForWallet(rows: WalletMarketRow[], wallet: string, limit: number): WalletMarketRow[] {
+  return rows
+    .filter((row) => row.wallet.toLowerCase() === wallet.toLowerCase())
+    .sort((a, b) => b.realizedPnl - a.realizedPnl)
+    .slice(0, limit);
 }
 
 export function inspectWalletMarkets(

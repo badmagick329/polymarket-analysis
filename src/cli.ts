@@ -1,7 +1,14 @@
 import { PolymarketApi } from "./api.ts";
-import { aggregateWalletMarkets, inspectWalletMarkets, scoreWallets } from "./analyzer.ts";
+import {
+  buildWalletMarketRows,
+  filterRowsClosedAfter,
+  inspectWalletMarkets,
+  rowsToAggregates,
+  scoreWallets,
+  topRowsForWallet,
+} from "./analyzer.ts";
 import { config } from "./config.ts";
-import { printAnalysis, printInspection, printTagCandidates, printWalletCandidates } from "./output.ts";
+import { printAnalysis, printInspection, printShortlist, printTagCandidates, printTopics, printWalletCandidates } from "./output.ts";
 import { Store } from "./store.ts";
 import { resolveTopic, tagName } from "./topic.ts";
 import type { GammaMarket, GammaTag, MarketPosition } from "./types.ts";
@@ -11,6 +18,8 @@ type CliOptions = {
   wallet: string | undefined;
   topic: string | undefined;
   limit: number;
+  show: number;
+  search: string | null;
   activeWithinYears: number | null;
   afterDate: Date | null;
 };
@@ -34,6 +43,11 @@ export async function runCli(args: string[]): Promise<void> {
   const api = new PolymarketApi(config);
 
   try {
+    if (options.command === "topics") {
+      printTopics(listTopics(await loadTags(store, api), options.search, options.limit));
+      return;
+    }
+
     const context = await loadTopicContext(options.topic!, store, api);
     if (!context) return;
 
@@ -54,16 +68,17 @@ export async function runCli(args: string[]): Promise<void> {
       return;
     }
 
-    const aggregates = aggregateWalletMarkets(context.positions);
-    const walletsConsidered = new Set(aggregates.map((aggregate) => aggregate.wallet)).size;
+    const rows = filterRowsClosedAfter(buildWalletMarketRows(context.markets, context.positions), options.afterDate);
+    const aggregates = rowsToAggregates(rows);
+    const walletsConsidered = new Set(rows.map((row) => row.wallet)).size;
     const scores = scoreWallets(tagName(context.tag), aggregates, config);
-    const activeFilter = options.activeWithinYears
+    const activeFilter = options.activeWithinYears !== null
       ? await filterActiveScores(scores, options.activeWithinYears, options.limit, store, api)
       : null;
     const outputScores = activeFilter?.scores ?? scores;
     const summary = {
       tag: context.tag,
-      marketsAnalyzed: context.markets.length,
+      marketsAnalyzed: uniqueMarketCount(rows),
       walletsConsidered,
       walletsPassingFilters: outputScores.length,
     };
@@ -76,7 +91,21 @@ export async function runCli(args: string[]): Promise<void> {
       walletsPassingFilters: summary.walletsPassingFilters,
     });
 
-    printAnalysis(summary, outputScores, options.limit, activeFilter ?? undefined);
+    if (options.command === "shortlist") {
+      printShortlist({
+        summary,
+        entries: outputScores.slice(0, options.limit).map((score) => ({
+          score,
+          rows: topRowsForWallet(rows, score.wallet, options.show),
+        })),
+        afterDate: options.afterDate,
+        activeFilter: activeFilter ?? undefined,
+        show: options.show,
+      });
+      return;
+    }
+
+    printAnalysis(summary, outputScores, options.limit, { active: activeFilter ?? undefined, afterDate: options.afterDate });
   } finally {
     store.close();
   }
@@ -92,7 +121,7 @@ async function inspectWalletRows(
   api: PolymarketApi,
 ) {
   const rows = inspectWalletMarkets(wallet, markets, positions);
-  const candidateRows = afterDate ? rows.filter((row) => inspectResultDate(row) === null || inspectResultDate(row)! >= afterDate) : rows;
+  const candidateRows = afterDate ? rows.filter((row) => row.closedAt !== null && row.closedAt >= afterDate) : rows;
   const rowsToShow = candidateRows.slice(0, limit);
   const datesByConditionId = new Map<string, { openedAt: Date | null; closedAt: Date | null }>();
 
@@ -106,9 +135,7 @@ async function inspectWalletRows(
   }
 
   const rowsWithDates = inspectWalletMarkets(wallet, markets, positions, datesByConditionId);
-  return afterDate
-    ? rowsWithDates.filter((row) => inspectResultDate(row) === null || inspectResultDate(row)! >= afterDate)
-    : rowsWithDates;
+  return afterDate ? rowsWithDates.filter((row) => row.closedAt !== null && row.closedAt >= afterDate) : rowsWithDates;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -118,6 +145,11 @@ function parseArgs(args: string[]): CliOptions {
   const limitIndex = args.indexOf("--limit");
   const parsedLimit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : config.defaultResultLimit;
   const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : config.defaultResultLimit;
+  const showIndex = args.indexOf("--show");
+  const parsedShow = showIndex >= 0 ? Number(args[showIndex + 1]) : config.defaultShortlistShow;
+  const show = Number.isFinite(parsedShow) && parsedShow > 0 ? Math.floor(parsedShow) : config.defaultShortlistShow;
+  const searchIndex = args.indexOf("--search");
+  const search = searchIndex >= 0 ? args[searchIndex + 1] ?? null : null;
   const activeWithinYearsIndex = args.indexOf("--active-within-years");
   const parsedActiveWithinYears = activeWithinYearsIndex >= 0 ? Number(args[activeWithinYearsIndex + 1]) : null;
   const activeWithinYears =
@@ -126,11 +158,13 @@ function parseArgs(args: string[]): CliOptions {
       : null;
   const afterDateIndex = args.indexOf("--after");
   const afterDate = afterDateIndex >= 0 ? parseDateArg(args[afterDateIndex + 1]) : null;
-  return { command, wallet, topic, limit, activeWithinYears, afterDate };
+  return { command, wallet, topic, limit, show, search, activeWithinYears, afterDate };
 }
 
 function isValidCommand(options: CliOptions): boolean {
+  if (options.command === "topics") return true;
   if (options.command === "analyze") return Boolean(options.topic);
+  if (options.command === "shortlist") return Boolean(options.topic);
   if (options.command === "inspect") return Boolean(options.wallet && options.topic);
   return false;
 }
@@ -140,11 +174,7 @@ async function loadTopicContext(
   store: Store,
   api: PolymarketApi,
 ): Promise<{ tag: GammaTag; markets: GammaMarket[]; positions: MarketPosition[] } | null> {
-  let tags = store.getTags();
-  if (tags.length === 0) {
-    tags = await api.fetchTags();
-    store.saveTags(tags);
-  }
+  let tags = await loadTags(store, api);
 
   let topic = resolveTopic(topicInput, tags);
   if (topic.kind === "not_found") {
@@ -181,6 +211,25 @@ async function loadTopicContext(
   }
 
   return { tag: topic.tag, markets, positions };
+}
+
+async function loadTags(store: Store, api: PolymarketApi): Promise<GammaTag[]> {
+  let tags = store.getTags();
+  if (tags.length === 0) {
+    tags = await api.fetchTags();
+    store.saveTags(tags);
+  }
+  return tags;
+}
+
+export function filterTopics(tags: GammaTag[], search: string | null): GammaTag[] {
+  const query = search?.trim().toLowerCase();
+  if (!query) return tags;
+  return tags.filter((tag) => (tag.label ?? "").toLowerCase().includes(query) || (tag.slug ?? "").toLowerCase().includes(query));
+}
+
+export function listTopics(tags: GammaTag[], search: string | null, limit: number): GammaTag[] {
+  return filterTopics(tags, search).slice(0, limit);
 }
 
 async function filterActiveScores(
@@ -268,24 +317,28 @@ function parseDate(value: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function parseDateArg(value: string | undefined): Date | null {
+export function parseDateArg(value: string | undefined): Date | null {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new Error("--after must use YYYY-MM-DD");
   }
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
     throw new Error("--after must use a valid YYYY-MM-DD date");
   }
   return date;
 }
 
-function inspectResultDate(row: { closedAt: Date | null; openedAt: Date | null; marketOpenedAt: Date | null }): Date | null {
-  return row.closedAt ?? row.openedAt ?? row.marketOpenedAt;
+function uniqueMarketCount(rows: { marketConditionId: string }[]): number {
+  return new Set(rows.map((row) => row.marketConditionId)).size;
 }
 
 function printUsage(): void {
-  console.log("Usage: bun run index.ts analyze <topic> [--limit N] [--active-within-years N]");
+  console.log("Usage: bun run index.ts topics [--limit N] [--search TEXT]");
+  console.log("Usage: bun run index.ts analyze <topic> [--limit N] [--after YYYY-MM-DD] [--active-within-years N]");
+  console.log("Usage: bun run index.ts shortlist <topic> [--limit N] [--show N] [--after YYYY-MM-DD] [--active-within-years N]");
   console.log("Usage: bun run index.ts inspect <wallet> <topic> [--limit N] [--after YYYY-MM-DD]");
-  console.log("Example: bun run index.ts analyze politics --limit 25 --active-within-years 2");
+  console.log("Example: bun run index.ts topics --search politics --limit 10");
+  console.log("Example: bun run index.ts analyze politics --limit 25 --after 2023-01-01 --active-within-years 2");
+  console.log("Example: bun run index.ts shortlist politics --limit 10 --show 3 --after 2023-01-01 --active-within-years 2");
   console.log("Example: bun run index.ts inspect 0x8c2f...64fa politics --limit 10 --after 2023-01-01");
 }

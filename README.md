@@ -14,6 +14,24 @@ This tool does **not** predict markets. It does **not** prove someone has inside
 bun install
 ```
 
+## List Topics
+
+Polymarket topics are tags. The CLI works best with an exact tag `slug` or `id`.
+
+List topics:
+
+```bash
+bun run index.ts topics --limit 25
+```
+
+Search topics:
+
+```bash
+bun run index.ts topics --search politics --limit 10
+```
+
+Use the `slug` value in commands like `analyze`, `shortlist`, and `inspect`.
+
 ## Analyze a Topic
 
 ```bash
@@ -31,6 +49,36 @@ bun run index.ts analyze sports --limit 10
 
 If a topic is ambiguous, the CLI prints matching tag choices and asks you to use an exact slug or id.
 
+To rank only markets that closed after a specific date:
+
+```bash
+bun run index.ts analyze politics --after 2023-01-01 --limit 10
+```
+
+For `analyze`, `--after` uses the market/result closed date. Rows without a closed date are excluded.
+
+## Shortlist Wallets
+
+`shortlist` is the easiest discovery workflow. It ranks wallets like `analyze`, then shows the top market wins under each wallet.
+
+```bash
+bun run index.ts shortlist politics --after 2023-01-01 --active-within-years 2 --limit 10 --show 3
+```
+
+This helps avoid the old manual flow of:
+
+1. run `analyze`
+2. pick a wallet
+3. run `inspect`
+4. discover there are no matching recent results
+
+Use:
+
+- `--after YYYY-MM-DD` to rank only results after a date
+- `--active-within-years N` to keep wallets active recently anywhere on Polymarket
+- `--limit N` to choose how many wallets to show
+- `--show N` to choose how many market wins to show under each wallet
+
 ## Filter for Recently Active Wallets
 
 To ignore wallets that have not been active in recent years:
@@ -47,6 +95,11 @@ Examples:
 - `--active-within-years 4` keeps wallets active within roughly the last 4 years
 
 The output includes `activeYear`, which is the latest year where the wallet has public Polymarket activity.
+
+This filter is different from `--after`:
+
+- `--after` filters topic performance by market closed date
+- `--active-within-years` filters whether the wallet is still active anywhere on Polymarket
 
 ## Inspect a Wallet
 
@@ -74,13 +127,7 @@ You can also show only market results after a specific date:
 bun run index.ts inspect 0x8c2f...64fa politics --limit 10 --after 2023-01-01
 ```
 
-The date must use `YYYY-MM-DD`.
-
-For this filter, the CLI uses the best available row date in this order:
-
-1. `closed`
-2. `positionOpened`
-3. `marketOpened`
+The date must use `YYYY-MM-DD`. Like `analyze` and `shortlist`, this filter uses the closed date. Rows without a closed date are excluded.
 
 ## Metrics
 
@@ -182,7 +229,7 @@ Date the position or market closed, based on available public API data.
 
 ### `--after`
 
-Filters inspected wallet rows to results after a specific date.
+Filters rows to results after a specific date.
 
 Example:
 
@@ -190,7 +237,7 @@ Example:
 bun run index.ts inspect 0x8c2f...64fa politics --after 2023-01-01
 ```
 
-This is useful when you only care about recent market results from that wallet.
+For `analyze`, `shortlist`, and `inspect`, this uses the closed date. Rows without a closed date are excluded.
 
 ### `outcomes`
 
@@ -248,13 +295,12 @@ Be careful with:
 - old wallets with no recent activity
 - market-making or hedging behavior that may look profitable but is not directional prediction
 
-The best workflow is:
+The best workflow is usually:
 
-1. Run `analyze`
-2. Pick interesting wallets
-3. Run `inspect`
-4. Look at the actual market questions
-5. Decide whether the pattern looks meaningful
+1. Run `shortlist` with `--after`
+2. Look at the wallets and the market wins shown underneath
+3. Run `inspect` on any wallet that looks interesting
+4. Decide whether the pattern looks meaningful
 
 ## Data Notes
 

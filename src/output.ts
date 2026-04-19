@@ -1,4 +1,4 @@
-import type { AnalysisSummary, GammaTag, WalletMarketInspection, WalletScore } from "./types.ts";
+import type { AnalysisSummary, GammaTag, ShortlistEntry, WalletMarketInspection, WalletScore } from "./types.ts";
 import { tagName } from "./topic.ts";
 
 export function printTagCandidates(title: string, candidates: GammaTag[]): void {
@@ -10,24 +10,42 @@ export function printTagCandidates(title: string, candidates: GammaTag[]): void 
   }
 }
 
+export function printTopics(tags: GammaTag[]): void {
+  if (tags.length === 0) {
+    console.log("No topics found.");
+    return;
+  }
+
+  console.table(
+    tags.map((tag) => ({
+      label: tag.label ?? "",
+      slug: tag.slug ?? "",
+      id: tag.id,
+    })),
+  );
+}
+
 export function printAnalysis(
   summary: AnalysisSummary,
   scores: WalletScore[],
   limit: number,
-  activeFilter?: { withinYears: number; cutoffYear: number; checkedWallets: number },
+  filters?: { active?: { withinYears: number; cutoffYear: number; checkedWallets: number }; afterDate?: Date | null },
 ): void {
   console.log(`Topic: ${tagName(summary.tag)} (${summary.tag.slug ?? "no-slug"}, id ${summary.tag.id})`);
+  if (filters?.afterDate) {
+    console.log(`After: ${formatDate(filters.afterDate)}`);
+  }
   console.log(
     `Markets analyzed: ${summary.marketsAnalyzed} | Wallets considered: ${summary.walletsConsidered} | Passing filters: ${summary.walletsPassingFilters}`,
   );
-  if (activeFilter) {
+  if (filters?.active) {
     console.log(
-      `Active filter: latest activity year >= ${activeFilter.cutoffYear} (${activeFilter.withinYears}y) | Wallets checked: ${activeFilter.checkedWallets}`,
+      `Active filter: latest activity year >= ${filters.active.cutoffYear} (${filters.active.withinYears}y) | Wallets checked: ${filters.active.checkedWallets}`,
     );
   }
 
   if (scores.length === 0) {
-    console.log("No wallets passed filters. Lower thresholds in src/config.ts or analyze more markets.");
+    console.log(filters?.afterDate || filters?.active ? "No wallets matched filters." : "No wallets passed filters. Lower thresholds in src/config.ts or analyze more markets.");
     return;
   }
 
@@ -45,6 +63,50 @@ export function printAnalysis(
   }));
 
   console.table(rows);
+}
+
+export function printShortlist(input: {
+  summary: AnalysisSummary;
+  entries: ShortlistEntry[];
+  afterDate: Date | null;
+  activeFilter?: { withinYears: number; cutoffYear: number; checkedWallets: number };
+  show: number;
+}): void {
+  console.log(`Topic: ${tagName(input.summary.tag)} (${input.summary.tag.slug ?? "no-slug"}, id ${input.summary.tag.id})`);
+  if (input.afterDate) {
+    console.log(`After: ${formatDate(input.afterDate)}`);
+  }
+  console.log(
+    `Markets analyzed: ${input.summary.marketsAnalyzed} | Wallets considered: ${input.summary.walletsConsidered} | Passing filters: ${input.summary.walletsPassingFilters}`,
+  );
+  if (input.activeFilter) {
+    console.log(
+      `Active filter: latest activity year >= ${input.activeFilter.cutoffYear} (${input.activeFilter.withinYears}y) | Wallets checked: ${input.activeFilter.checkedWallets}`,
+    );
+  }
+
+  if (input.entries.length === 0) {
+    console.log("No wallets matched filters.");
+    return;
+  }
+
+  for (const entry of input.entries) {
+    const score = entry.score;
+    console.log("");
+    console.log(
+      `#${score.rank} ${shortenWallet(score.wallet)} | edgeScore ${score.edgeScore.toFixed(2)} | PnL ${formatUsd(score.realizedPnl)} | ROI ${formatPercent(score.roi)} | markets ${score.resolvedMarkets} | active ${score.latestActivityYear ?? "unknown"}`,
+    );
+
+    console.table(
+      entry.rows.slice(0, input.show).map((row) => ({
+        realizedPnl: formatUsd(row.realizedPnl),
+        roi: formatPercent(row.totalBought === 0 ? 0 : row.realizedPnl / row.totalBought),
+        closed: formatDate(row.closedAt),
+        outcomes: row.outcomes,
+        question: truncate(row.question, 88),
+      })),
+    );
+  }
 }
 
 export function printInspection(input: {
