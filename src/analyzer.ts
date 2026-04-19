@@ -96,7 +96,9 @@ export function buildWalletMarketRows(markets: GammaMarket[], positions: MarketP
       ...aggregate,
       question: market?.question ?? aggregate.marketConditionId,
       marketSlug: market?.slug ?? "",
-      outcomes: [...new Set(marketPositions.map((position) => position.outcome))].join(", "),
+      side: marketSides(marketPositions).join(", "),
+      finalOutcome: inferFinalOutcome(market),
+      correctAtResolution: correctAtResolution(marketSides(marketPositions), inferFinalOutcome(market)),
       marketOpenedAt: marketOpenedAt(market),
       closedAt: marketClosedAt(market),
     };
@@ -148,13 +150,45 @@ export function inspectWalletMarkets(
         totalBought: aggregate.totalBought,
         roi: aggregate.totalBought === 0 ? 0 : aggregate.realizedPnl / aggregate.totalBought,
         positions: aggregate.positions,
-        outcomes: [...new Set(marketPositions.map((position) => position.outcome))].join(", "),
+        side: marketSides(marketPositions).join(", "),
+        finalOutcome: inferFinalOutcome(market),
+        correctAtResolution: correctAtResolution(marketSides(marketPositions), inferFinalOutcome(market)),
         openedAt: datesByConditionId.get(aggregate.marketConditionId)?.openedAt ?? null,
         marketOpenedAt: marketOpenedAt(market),
         closedAt: datesByConditionId.get(aggregate.marketConditionId)?.closedAt ?? marketClosedAt(market),
       };
     })
     .sort((a, b) => b.realizedPnl - a.realizedPnl);
+}
+
+export function inferFinalOutcome(market: GammaMarket | undefined): string | null {
+  if (!market?.outcomes || !market.outcomePrices) return null;
+
+  try {
+    const outcomes = JSON.parse(market.outcomes) as unknown;
+    const prices = JSON.parse(market.outcomePrices) as unknown;
+    if (!Array.isArray(outcomes) || !Array.isArray(prices) || outcomes.length !== prices.length) return null;
+
+    const winningIndexes = prices
+      .map((price, index) => ({ price: Number(price), index }))
+      .filter((entry) => Number.isFinite(entry.price) && entry.price >= 0.99)
+      .map((entry) => entry.index);
+
+    if (winningIndexes.length !== 1) return null;
+    const outcome = outcomes[winningIndexes[0]!];
+    return typeof outcome === "string" ? outcome : null;
+  } catch {
+    return null;
+  }
+}
+
+export function correctAtResolution(sides: string[], finalOutcome: string | null): "yes" | "no" | "unknown" {
+  if (!finalOutcome || sides.length !== 1) return "unknown";
+  return sides[0]?.toLowerCase() === finalOutcome.toLowerCase() ? "yes" : "no";
+}
+
+function marketSides(positions: MarketPosition[]): string[] {
+  return [...new Set(positions.map((position) => position.outcome))];
 }
 
 function marketOpenedAt(market: GammaMarket | undefined): Date | null {

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   aggregateWalletMarkets,
   buildWalletMarketRows,
+  correctAtResolution,
   filterRowsClosedAfter,
+  inferFinalOutcome,
   inspectWalletMarkets,
   rowsToAggregates,
   scoreWallets,
@@ -28,6 +30,24 @@ describe("aggregateWalletMarkets", () => {
         positions: 2,
       },
     ]);
+  });
+});
+
+describe("final outcome inference", () => {
+  test("infers final outcome from resolved outcome prices", () => {
+    expect(inferFinalOutcome(market({ conditionId: "m1", outcomes: ["Yes", "No"], outcomePrices: ["0", "1"] }))).toBe("No");
+  });
+
+  test("returns unknown when prices are invalid or ambiguous", () => {
+    expect(inferFinalOutcome(market({ conditionId: "bad", outcomes: ["Yes", "No"], outcomePrices: ["0.5", "0.5"] }))).toBeNull();
+    expect(inferFinalOutcome(market({ conditionId: "invalid", outcomesRaw: "not-json", outcomePrices: ["1", "0"] }))).toBeNull();
+  });
+
+  test("correctAtResolution distinguishes yes no and unknown", () => {
+    expect(correctAtResolution(["No"], "No")).toBe("yes");
+    expect(correctAtResolution(["Yes"], "No")).toBe("no");
+    expect(correctAtResolution(["Yes", "No"], "No")).toBe("unknown");
+    expect(correctAtResolution(["No"], null)).toBe("unknown");
   });
 });
 
@@ -81,6 +101,7 @@ describe("inspectWalletMarkets", () => {
 
     expect(rows.map((row) => row.conditionId)).toEqual(["m2", "m1"]);
     expect(rows[0]?.question).toBe("Market two?");
+    expect(rows[0]?.side).toBe("Yes");
   });
 });
 
@@ -145,7 +166,7 @@ describe("date-aware rows", () => {
   });
 });
 
-function market(input: { conditionId: string; closedTime?: string }) {
+function market(input: { conditionId: string; closedTime?: string; outcomes?: string[]; outcomePrices?: string[]; outcomesRaw?: string }) {
   return {
     id: input.conditionId,
     question: `${input.conditionId}?`,
@@ -154,6 +175,8 @@ function market(input: { conditionId: string; closedTime?: string }) {
     closed: true,
     umaResolutionStatus: "resolved",
     closedTime: input.closedTime,
+    outcomes: input.outcomesRaw ?? JSON.stringify(input.outcomes ?? ["Yes", "No"]),
+    outcomePrices: JSON.stringify(input.outcomePrices ?? ["1", "0"]),
   };
 }
 

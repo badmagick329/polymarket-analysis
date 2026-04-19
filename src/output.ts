@@ -54,7 +54,7 @@ export function printAnalysis(
     wallet: shortenWallet(score.wallet),
     edgeScore: score.edgeScore.toFixed(2),
     realizedPnl: formatUsd(score.realizedPnl),
-    roi: formatPercent(score.roi),
+    tradingRoi: formatPercent(score.roi),
     positiveRate: formatPercent(score.positiveMarketRate),
     markets: score.resolvedMarkets,
     positions: score.resolvedPositions,
@@ -94,15 +94,17 @@ export function printShortlist(input: {
     const score = entry.score;
     console.log("");
     console.log(
-      `#${score.rank} ${shortenWallet(score.wallet)} | edgeScore ${score.edgeScore.toFixed(2)} | PnL ${formatUsd(score.realizedPnl)} | ROI ${formatPercent(score.roi)} | markets ${score.resolvedMarkets} | active ${score.latestActivityYear ?? "unknown"}`,
+      `#${score.rank} ${shortenWallet(score.wallet)} | edgeScore ${score.edgeScore.toFixed(2)} | PnL ${formatUsd(score.realizedPnl)} | tradingRoi ${formatPercent(score.roi)} | markets ${score.resolvedMarkets} | active ${score.latestActivityYear ?? "unknown"}`,
     );
 
     console.table(
       entry.rows.slice(0, input.show).map((row) => ({
         realizedPnl: formatUsd(row.realizedPnl),
-        roi: formatPercent(row.totalBought === 0 ? 0 : row.realizedPnl / row.totalBought),
+        tradingRoi: formatPercent(row.totalBought === 0 ? 0 : row.realizedPnl / row.totalBought),
         closed: formatDate(row.closedAt),
-        outcomes: row.outcomes,
+        side: row.side,
+        finalOutcome: row.finalOutcome ?? "unknown",
+        correctAtResolution: row.correctAtResolution,
         question: truncate(row.question, 88),
       })),
     );
@@ -128,7 +130,7 @@ export function printInspection(input: {
     console.log(`After: ${formatDate(input.afterDate)}`);
   }
   console.log(
-    `Markets: ${input.rows.length} | Positions: ${positions} | Positive markets: ${positiveMarkets} | Realized PnL: ${formatUsd(realizedPnl)} | ROI: ${formatPercent(roi)}`,
+    `Markets: ${input.rows.length} | Positions: ${positions} | Positive markets: ${positiveMarkets} | Realized PnL: ${formatUsd(realizedPnl)} | tradingRoi: ${formatPercent(roi)}`,
   );
 
   if (input.rows.length === 0) {
@@ -140,13 +142,15 @@ export function printInspection(input: {
     input.rows.slice(0, input.limit).map((row, index) => ({
       rank: index + 1,
       realizedPnl: formatUsd(row.realizedPnl),
-      roi: formatPercent(row.roi),
+      tradingRoi: formatPercent(row.roi),
       totalBought: formatUsd(row.totalBought),
       positionOpened: formatDate(row.openedAt),
       marketOpened: formatDate(row.marketOpenedAt),
       closed: formatDate(row.closedAt),
       positions: row.positions,
-      outcomes: row.outcomes,
+      side: row.side,
+      finalOutcome: row.finalOutcome ?? "unknown",
+      correctAtResolution: row.correctAtResolution,
       question: truncate(row.question, 72),
     })),
   );

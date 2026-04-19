@@ -20,6 +20,7 @@ type CliOptions = {
   limit: number;
   show: number;
   search: string | null;
+  allTopics: boolean;
   activeWithinYears: number | null;
   afterDate: Date | null;
 };
@@ -44,7 +45,7 @@ export async function runCli(args: string[]): Promise<void> {
 
   try {
     if (options.command === "topics") {
-      printTopics(listTopics(await loadTags(store, api), options.search, options.limit));
+      printTopics(listTopics(await loadTags(store, api, true), options.search, options.limit, options.allTopics));
       return;
     }
 
@@ -143,13 +144,15 @@ function parseArgs(args: string[]): CliOptions {
   const wallet = command === "inspect" ? args[1] : undefined;
   const topic = command === "inspect" ? args[2] : args[1];
   const limitIndex = args.indexOf("--limit");
-  const parsedLimit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : config.defaultResultLimit;
-  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : config.defaultResultLimit;
+  const defaultLimit = command === "topics" ? config.defaultTopicsLimit : config.defaultResultLimit;
+  const parsedLimit = limitIndex >= 0 ? Number(args[limitIndex + 1]) : defaultLimit;
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : defaultLimit;
   const showIndex = args.indexOf("--show");
   const parsedShow = showIndex >= 0 ? Number(args[showIndex + 1]) : config.defaultShortlistShow;
   const show = Number.isFinite(parsedShow) && parsedShow > 0 ? Math.floor(parsedShow) : config.defaultShortlistShow;
   const searchIndex = args.indexOf("--search");
   const search = searchIndex >= 0 ? args[searchIndex + 1] ?? null : null;
+  const allTopics = args.includes("--all");
   const activeWithinYearsIndex = args.indexOf("--active-within-years");
   const parsedActiveWithinYears = activeWithinYearsIndex >= 0 ? Number(args[activeWithinYearsIndex + 1]) : null;
   const activeWithinYears =
@@ -158,7 +161,7 @@ function parseArgs(args: string[]): CliOptions {
       : null;
   const afterDateIndex = args.indexOf("--after");
   const afterDate = afterDateIndex >= 0 ? parseDateArg(args[afterDateIndex + 1]) : null;
-  return { command, wallet, topic, limit, show, search, activeWithinYears, afterDate };
+  return { command, wallet, topic, limit, show, search, allTopics, activeWithinYears, afterDate };
 }
 
 function isValidCommand(options: CliOptions): boolean {
@@ -213,9 +216,9 @@ async function loadTopicContext(
   return { tag: topic.tag, markets, positions };
 }
 
-async function loadTags(store: Store, api: PolymarketApi): Promise<GammaTag[]> {
+async function loadTags(store: Store, api: PolymarketApi, refresh = false): Promise<GammaTag[]> {
   let tags = store.getTags();
-  if (tags.length === 0) {
+  if (refresh || tags.length === 0) {
     tags = await api.fetchTags();
     store.saveTags(tags);
   }
@@ -228,8 +231,11 @@ export function filterTopics(tags: GammaTag[], search: string | null): GammaTag[
   return tags.filter((tag) => (tag.label ?? "").toLowerCase().includes(query) || (tag.slug ?? "").toLowerCase().includes(query));
 }
 
-export function listTopics(tags: GammaTag[], search: string | null, limit: number): GammaTag[] {
-  return filterTopics(tags, search).slice(0, limit);
+export function listTopics(tags: GammaTag[], search: string | null, limit: number, allTopics = false): GammaTag[] {
+  if (search || allTopics) return filterTopics(tags, search).slice(0, limit);
+
+  const bySlug = new Map(tags.map((tag) => [tag.slug, tag]));
+  return commonTopicSlugs.map((slug) => bySlug.get(slug)).filter((tag) => tag !== undefined);
 }
 
 async function filterActiveScores(
@@ -333,12 +339,37 @@ function uniqueMarketCount(rows: { marketConditionId: string }[]): number {
 }
 
 function printUsage(): void {
-  console.log("Usage: bun run index.ts topics [--limit N] [--search TEXT]");
+  console.log("Usage: bun run index.ts topics [--all] [--limit N] [--search TEXT]");
   console.log("Usage: bun run index.ts analyze <topic> [--limit N] [--after YYYY-MM-DD] [--active-within-years N]");
   console.log("Usage: bun run index.ts shortlist <topic> [--limit N] [--show N] [--after YYYY-MM-DD] [--active-within-years N]");
   console.log("Usage: bun run index.ts inspect <wallet> <topic> [--limit N] [--after YYYY-MM-DD]");
-  console.log("Example: bun run index.ts topics --search politics --limit 10");
+  console.log("Example: bun run index.ts topics");
+  console.log("Example: bun run index.ts topics --all --limit 100");
+  console.log("Example: bun run index.ts topics --search election --limit 25");
   console.log("Example: bun run index.ts analyze politics --limit 25 --after 2023-01-01 --active-within-years 2");
   console.log("Example: bun run index.ts shortlist politics --limit 10 --show 3 --after 2023-01-01 --active-within-years 2");
   console.log("Example: bun run index.ts inspect 0x8c2f...64fa politics --limit 10 --after 2023-01-01");
 }
+
+const commonTopicSlugs = [
+  "politics",
+  "crypto",
+  "sports",
+  "business",
+  "economy",
+  "elections",
+  "trump",
+  "artificial-intelligence",
+  "fed",
+  "nfl",
+  "nba",
+  "mlb",
+  "soccer",
+  "ufc",
+  "culture",
+  "movies",
+  "music",
+  "tech",
+  "covid",
+  "weather",
+];

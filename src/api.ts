@@ -15,12 +15,21 @@ export class PolymarketApi {
   constructor(private readonly appConfig: AppConfig) {}
 
   async fetchTags(): Promise<GammaTag[]> {
-    const url = new URL("/tags", this.appConfig.api.gammaBaseUrl);
-    url.searchParams.set("limit", "10000");
-    url.searchParams.set("order", "id");
-    url.searchParams.set("ascending", "true");
-    const data = await this.getJson<GammaTag[]>(url);
-    return data.filter((tag) => tag.id && (tag.slug || tag.label));
+    const tags: GammaTag[] = [];
+    const pageSize = 300;
+
+    for (let offset = 0; ; offset += pageSize) {
+      const url = new URL("/tags", this.appConfig.api.gammaBaseUrl);
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(offset));
+      url.searchParams.set("order", "id");
+      url.searchParams.set("ascending", "true");
+      const page = await this.getJson<GammaTag[]>(url);
+      tags.push(...page.filter((tag) => tag.id && (tag.slug || tag.label)));
+      if (page.length < pageSize) break;
+    }
+
+    return tags;
   }
 
   async fetchTagBySlug(slug: string): Promise<GammaTag | null> {

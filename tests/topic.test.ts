@@ -42,6 +42,10 @@ describe("filterTopics", () => {
   });
 
   test("listTopics truncates by limit", () => {
-    expect(listTopics(tags, null, 2).map((tag) => tag.id)).toEqual(["2", "188"]);
+    expect(listTopics(tags, null, 2, true).map((tag) => tag.id)).toEqual(["2", "188"]);
+  });
+
+  test("listTopics defaults to common topics when no search or all flag", () => {
+    expect(listTopics(tags, null, 100).map((tag) => tag.id)).toEqual(["2", "3"]);
   });
 });

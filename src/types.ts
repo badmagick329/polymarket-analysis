@@ -75,7 +75,9 @@ export type WalletMarketAggregate = {
 export type WalletMarketRow = WalletMarketAggregate & {
   question: string;
   marketSlug: string;
-  outcomes: string;
+  side: string;
+  finalOutcome: string | null;
+  correctAtResolution: "yes" | "no" | "unknown";
   marketOpenedAt: Date | null;
   closedAt: Date | null;
 };
@@ -103,7 +105,9 @@ export type WalletMarketInspection = {
   totalBought: number;
   roi: number;
   positions: number;
-  outcomes: string;
+  side: string;
+  finalOutcome: string | null;
+  correctAtResolution: "yes" | "no" | "unknown";
   openedAt: Date | null;
   marketOpenedAt: Date | null;
   closedAt: Date | null;

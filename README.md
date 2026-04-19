@@ -18,7 +18,7 @@ bun install
 
 Polymarket topics are tags. The CLI works best with an exact tag `slug` or `id`.
 
-List topics:
+List common topics:
 
 ```bash
 bun run index.ts topics --limit 25
@@ -28,6 +28,12 @@ Search topics:
 
 ```bash
 bun run index.ts topics --search politics --limit 10
+```
+
+Show raw Polymarket tags:
+
+```bash
+bun run index.ts topics --all --limit 100
 ```
 
 Use the `slug` value in commands like `analyze`, `shortlist`, and `inspect`.
@@ -146,7 +152,7 @@ The main ranking score used by this tool.
 Higher means the wallet has a stronger mix of:
 
 - realized profit
-- return on capital
+- trading return on capital
 - repeat positive results
 - enough resolved markets
 - enough total activity
@@ -155,21 +161,21 @@ Higher means the wallet has a stronger mix of:
 
 ### `realizedPnl`
 
-The wallet's realized profit or loss in the resolved markets being analyzed.
+The wallet's realized trading profit or loss in the resolved markets being analyzed.
 
-Higher is better, but this should not be used alone. A wallet can make a lot from one big market without showing repeatable edge.
+This can be positive even if the wallet's traded side was not the final winning outcome, because traders can close positions before resolution.
 
-### `roi`
+### `tradingRoi`
 
-Return on investment:
+Trading return on investment:
 
 ```text
 realizedPnl / totalBought
 ```
 
-Higher ROI means the wallet made more profit relative to the amount it bought.
+Higher trading ROI means the wallet made more realized profit relative to the amount it bought.
 
-ROI is useful, but it can be noisy on small samples.
+Trading ROI is useful, but it can be noisy on small samples.
 
 ### `positiveRate`
 
@@ -239,9 +245,31 @@ bun run index.ts inspect 0x8c2f...64fa politics --after 2023-01-01
 
 For `analyze`, `shortlist`, and `inspect`, this uses the closed date. Rows without a closed date are excluded.
 
-### `outcomes`
+### `side`
 
-The outcome side the wallet held, such as `Yes` or `No`.
+The side the wallet traded or held, such as `Yes` or `No`.
+
+This is not always the same as the final market outcome.
+
+### `finalOutcome`
+
+The market's resolved outcome, inferred from Polymarket's resolved outcome prices when available.
+
+Example:
+
+```text
+side Yes | finalOutcome No
+```
+
+This means the wallet traded the Yes side, but the market eventually resolved No.
+
+### `correctAtResolution`
+
+Whether the wallet's single traded side matched the final outcome:
+
+- `yes`: side matched final outcome
+- `no`: side did not match final outcome
+- `unknown`: final outcome is unknown, or wallet traded multiple sides in the market
 
 ### `question`
 
@@ -254,7 +282,7 @@ Use this to see whether the wallet's performance came from diverse markets or on
 Ranking by one metric is misleading:
 
 - PnL alone favors whales and one big win
-- ROI alone favors tiny lucky bets
+- trading ROI alone favors tiny lucky bets
 - positive rate alone ignores whether the wallet made meaningful money
 - market count alone ignores whether the wallet was profitable
 
@@ -263,7 +291,7 @@ Ranking by one metric is misleading:
 It rewards wallets that:
 
 - made positive realized PnL
-- had good ROI
+- had good trading ROI
 - were profitable across multiple resolved markets
 - deployed meaningful size
 - had enough activity to reduce noise
@@ -276,12 +304,18 @@ Do **not** read it as:
 
 > "This wallet is guaranteed to be skilled."
 
+Also do **not** read it as:
+
+> "This wallet always picked the final outcome correctly."
+
+`edgeScore` is currently based on realized trading performance, not prediction accuracy.
+
 ## How to Interpret Results
 
 A good candidate usually has:
 
 - positive realized PnL
-- ROI above 0
+- tradingRoi above 0
 - positiveRate above 50%
 - multiple resolved markets
 - meaningful totalBought
@@ -291,7 +325,7 @@ Be careful with:
 
 - wallets with only 1-2 markets
 - huge PnL from one market cluster
-- very high ROI on tiny size
+- very high tradingRoi on tiny size
 - old wallets with no recent activity
 - market-making or hedging behavior that may look profitable but is not directional prediction
 
