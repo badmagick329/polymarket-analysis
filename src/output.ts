@@ -1,4 +1,4 @@
-import type { AnalysisSummary, GammaTag, WalletScore } from "./types.ts";
+import type { AnalysisSummary, GammaTag, WalletMarketInspection, WalletScore } from "./types.ts";
 import { tagName } from "./topic.ts";
 
 export function printTagCandidates(title: string, candidates: GammaTag[]): void {
@@ -10,11 +10,21 @@ export function printTagCandidates(title: string, candidates: GammaTag[]): void 
   }
 }
 
-export function printAnalysis(summary: AnalysisSummary, scores: WalletScore[], limit: number): void {
+export function printAnalysis(
+  summary: AnalysisSummary,
+  scores: WalletScore[],
+  limit: number,
+  activeFilter?: { withinYears: number; cutoffYear: number; checkedWallets: number },
+): void {
   console.log(`Topic: ${tagName(summary.tag)} (${summary.tag.slug ?? "no-slug"}, id ${summary.tag.id})`);
   console.log(
     `Markets analyzed: ${summary.marketsAnalyzed} | Wallets considered: ${summary.walletsConsidered} | Passing filters: ${summary.walletsPassingFilters}`,
   );
+  if (activeFilter) {
+    console.log(
+      `Active filter: latest activity year >= ${activeFilter.cutoffYear} (${activeFilter.withinYears}y) | Wallets checked: ${activeFilter.checkedWallets}`,
+    );
+  }
 
   if (scores.length === 0) {
     console.log("No wallets passed filters. Lower thresholds in src/config.ts or analyze more markets.");
@@ -30,10 +40,62 @@ export function printAnalysis(summary: AnalysisSummary, scores: WalletScore[], l
     positiveRate: formatPercent(score.positiveMarketRate),
     markets: score.resolvedMarkets,
     positions: score.resolvedPositions,
+    activeYear: score.latestActivityYear ?? "unknown",
     totalBought: formatUsd(score.totalBought),
   }));
 
   console.table(rows);
+}
+
+export function printInspection(input: {
+  topic: string;
+  wallet: string;
+  rows: WalletMarketInspection[];
+  limit: number;
+}): void {
+  const realizedPnl = input.rows.reduce((total, row) => total + row.realizedPnl, 0);
+  const totalBought = input.rows.reduce((total, row) => total + row.totalBought, 0);
+  const positions = input.rows.reduce((total, row) => total + row.positions, 0);
+  const positiveMarkets = input.rows.filter((row) => row.realizedPnl > 0).length;
+  const roi = totalBought === 0 ? 0 : realizedPnl / totalBought;
+
+  console.log(`Wallet: ${input.wallet}`);
+  console.log(`Topic: ${input.topic}`);
+  console.log(
+    `Markets: ${input.rows.length} | Positions: ${positions} | Positive markets: ${positiveMarkets} | Realized PnL: ${formatUsd(realizedPnl)} | ROI: ${formatPercent(roi)}`,
+  );
+
+  if (input.rows.length === 0) {
+    console.log("No cached/fetched positions found for this wallet in this topic.");
+    return;
+  }
+
+  console.table(
+    input.rows.slice(0, input.limit).map((row, index) => ({
+      rank: index + 1,
+      realizedPnl: formatUsd(row.realizedPnl),
+      roi: formatPercent(row.roi),
+      totalBought: formatUsd(row.totalBought),
+      positionOpened: formatDate(row.openedAt),
+      marketOpened: formatDate(row.marketOpenedAt),
+      closed: formatDate(row.closedAt),
+      positions: row.positions,
+      outcomes: row.outcomes,
+      question: truncate(row.question, 72),
+    })),
+  );
+}
+
+export function printWalletCandidates(input: string, candidates: string[]): void {
+  if (candidates.length === 0) {
+    console.log(`No wallet matched ${input}. Use full address or run analyze for this topic first.`);
+    return;
+  }
+
+  console.log(`Ambiguous wallet ${input}. Use full address:`);
+  for (const wallet of candidates) {
+    console.log(`- ${wallet}`);
+  }
 }
 
 function shortenWallet(wallet: string): string {
@@ -47,4 +109,14 @@ function formatUsd(value: number): string {
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatDate(value: Date | null): string {
+  if (!value) return "unknown";
+  return value.toISOString().slice(0, 10);
+}
+
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
 }

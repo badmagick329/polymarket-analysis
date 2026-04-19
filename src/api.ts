@@ -1,5 +1,5 @@
 import type { AppConfig } from "./config.ts";
-import type { GammaMarket, GammaTag, MarketPosition } from "./types.ts";
+import type { ClosedPosition, GammaMarket, GammaTag, MarketPosition, WalletActivity, WalletTrade } from "./types.ts";
 
 type MarketsResponse = {
   markets?: GammaMarket[];
@@ -79,6 +79,36 @@ export class PolymarketApi {
     }
 
     return positions;
+  }
+
+  async fetchTradesForWalletMarket(wallet: string, conditionId: string): Promise<WalletTrade[]> {
+    const url = new URL("/trades", this.appConfig.api.dataBaseUrl);
+    url.searchParams.set("user", wallet);
+    url.searchParams.set("market", conditionId);
+    url.searchParams.set("limit", "10000");
+    url.searchParams.set("takerOnly", "false");
+    const data = await this.getJson<WalletTrade[]>(url);
+    return data.filter((trade) => trade.conditionId === conditionId && trade.proxyWallet.toLowerCase() === wallet.toLowerCase());
+  }
+
+  async fetchClosedPositionsForWalletMarket(wallet: string, conditionId: string): Promise<ClosedPosition[]> {
+    const url = new URL("/closed-positions", this.appConfig.api.dataBaseUrl);
+    url.searchParams.set("user", wallet);
+    url.searchParams.set("market", conditionId);
+    url.searchParams.set("limit", "50");
+    const data = await this.getJson<ClosedPosition[]>(url);
+    return data.filter((position) => position.conditionId === conditionId && position.proxyWallet.toLowerCase() === wallet.toLowerCase());
+  }
+
+  async fetchLatestActivityYear(wallet: string): Promise<number | null> {
+    const url = new URL("/activity", this.appConfig.api.dataBaseUrl);
+    url.searchParams.set("user", wallet);
+    url.searchParams.set("limit", "1");
+    url.searchParams.set("sortDirection", "DESC");
+    const data = await this.getJson<WalletActivity[]>(url);
+    const timestamp = data[0]?.timestamp;
+    if (!timestamp) return null;
+    return new Date(timestamp * 1000).getUTCFullYear();
   }
 
   private async getJson<T>(url: URL): Promise<T> {

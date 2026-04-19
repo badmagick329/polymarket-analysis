@@ -1,5 +1,5 @@
 import type { AppConfig } from "./config.ts";
-import type { MarketPosition, WalletMarketAggregate, WalletScore } from "./types.ts";
+import type { GammaMarket, MarketPosition, WalletMarketAggregate, WalletMarketInspection, WalletScore } from "./types.ts";
 
 export function aggregateWalletMarkets(positions: MarketPosition[]): WalletMarketAggregate[] {
   const byWalletMarket = new Map<string, WalletMarketAggregate>();
@@ -69,6 +69,52 @@ export function scoreWallets(topic: string, aggregates: WalletMarketAggregate[],
   return scores
     .sort((a, b) => b.edgeScore - a.edgeScore || b.realizedPnl - a.realizedPnl)
     .map((score, index) => ({ ...score, rank: index + 1 }));
+}
+
+export function inspectWalletMarkets(
+  wallet: string,
+  markets: GammaMarket[],
+  positions: MarketPosition[],
+  datesByConditionId: Map<string, { openedAt: Date | null; closedAt: Date | null }> = new Map(),
+): WalletMarketInspection[] {
+  const marketByConditionId = new Map(markets.map((market) => [market.conditionId, market]));
+  const walletPositions = positions.filter((position) => position.proxyWallet.toLowerCase() === wallet.toLowerCase());
+  const aggregates = aggregateWalletMarkets(walletPositions);
+
+  return aggregates
+    .map((aggregate) => {
+      const market = marketByConditionId.get(aggregate.marketConditionId);
+      const marketPositions = walletPositions.filter((position) => position.conditionId === aggregate.marketConditionId);
+      return {
+        wallet: aggregate.wallet,
+        question: market?.question ?? aggregate.marketConditionId,
+        marketSlug: market?.slug ?? "",
+        conditionId: aggregate.marketConditionId,
+        realizedPnl: aggregate.realizedPnl,
+        totalBought: aggregate.totalBought,
+        roi: aggregate.totalBought === 0 ? 0 : aggregate.realizedPnl / aggregate.totalBought,
+        positions: aggregate.positions,
+        outcomes: [...new Set(marketPositions.map((position) => position.outcome))].join(", "),
+        openedAt: datesByConditionId.get(aggregate.marketConditionId)?.openedAt ?? null,
+        marketOpenedAt: marketOpenedAt(market),
+        closedAt: datesByConditionId.get(aggregate.marketConditionId)?.closedAt ?? marketClosedAt(market),
+      };
+    })
+    .sort((a, b) => b.realizedPnl - a.realizedPnl);
+}
+
+function marketOpenedAt(market: GammaMarket | undefined): Date | null {
+  const value = market?.startDate ?? market?.createdAt;
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function marketClosedAt(market: GammaMarket | undefined): Date | null {
+  const value = market?.closedTime ?? market?.endDate;
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function calculateEdgeScore(input: {

@@ -9,6 +9,7 @@ export type AppConfig = {
   minRoi: number;
   minPositiveMarketRate: number;
   defaultResultLimit: number;
+  maxActivityChecks: number;
   api: {
     gammaBaseUrl: string;
     dataBaseUrl: string;
@@ -26,6 +27,7 @@ export const config: AppConfig = {
   minRoi: 0,
   minPositiveMarketRate: 0.5,
   defaultResultLimit: 25,
+  maxActivityChecks: 250,
   api: {
     gammaBaseUrl: "https://gamma-api.polymarket.com",
     dataBaseUrl: "https://data-api.polymarket.com",

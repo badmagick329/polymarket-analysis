@@ -12,6 +12,10 @@ export type GammaMarket = {
   closed: boolean;
   umaResolutionStatus?: string | null;
   volumeNum?: number | null;
+  startDate?: string | null;
+  createdAt?: string | null;
+  endDate?: string | null;
+  closedTime?: string | null;
   outcomes?: string | null;
   outcomePrices?: string | null;
 };
@@ -31,6 +35,28 @@ export type MarketPosition = {
   totalPnl: number;
   outcome: string;
   outcomeIndex: number;
+};
+
+export type WalletTrade = {
+  proxyWallet: string;
+  conditionId: string;
+  timestamp: number;
+  side: string;
+};
+
+export type WalletActivity = {
+  proxyWallet: string;
+  timestamp: number;
+};
+
+export type ClosedPosition = {
+  proxyWallet: string;
+  conditionId: string;
+  timestamp?: number;
+  endDate?: string | null;
+  realizedPnl: number;
+  totalBought: number;
+  outcome: string;
 };
 
 export type TopicResolution =
@@ -57,6 +83,22 @@ export type WalletScore = {
   resolvedMarkets: number;
   resolvedPositions: number;
   totalBought: number;
+  latestActivityYear?: number | null;
+};
+
+export type WalletMarketInspection = {
+  wallet: string;
+  question: string;
+  marketSlug: string;
+  conditionId: string;
+  realizedPnl: number;
+  totalBought: number;
+  roi: number;
+  positions: number;
+  outcomes: string;
+  openedAt: Date | null;
+  marketOpenedAt: Date | null;
+  closedAt: Date | null;
 };
 
 export type AnalysisSummary = {

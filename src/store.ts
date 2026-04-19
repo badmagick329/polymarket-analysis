@@ -96,6 +96,27 @@ export class Store {
     tx(positions);
   }
 
+  getLatestActivityYear(wallet: string): number | null | undefined {
+    const row = this.db
+      .query("select latest_activity_year from wallet_activity where proxy_wallet = $proxy_wallet")
+      .get({ $proxy_wallet: wallet.toLowerCase() }) as { latest_activity_year: number | null } | null;
+    if (!row) return undefined;
+    return row.latest_activity_year;
+  }
+
+  saveLatestActivityYear(wallet: string, latestActivityYear: number | null): void {
+    this.db
+      .prepare(`
+        insert or replace into wallet_activity (proxy_wallet, latest_activity_year, fetched_at)
+        values ($proxy_wallet, $latest_activity_year, $fetched_at)
+      `)
+      .run({
+        $proxy_wallet: wallet.toLowerCase(),
+        $latest_activity_year: latestActivityYear,
+        $fetched_at: new Date().toISOString(),
+      });
+  }
+
   saveAnalysisRun(input: {
     tagId: string;
     tagLabel: string;
@@ -164,6 +185,12 @@ export class Store {
         wallets_considered integer not null,
         wallets_passing_filters integer not null,
         created_at text not null
+      );
+
+      create table if not exists wallet_activity (
+        proxy_wallet text primary key,
+        latest_activity_year integer,
+        fetched_at text not null
       );
     `);
   }

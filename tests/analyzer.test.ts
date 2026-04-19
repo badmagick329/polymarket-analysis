@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregateWalletMarkets, scoreWallets } from "../src/analyzer.ts";
+import { aggregateWalletMarkets, inspectWalletMarkets, scoreWallets } from "../src/analyzer.ts";
 import { config } from "../src/config.ts";
 import type { MarketPosition } from "../src/types.ts";
 
@@ -38,6 +38,40 @@ describe("scoreWallets", () => {
     expect(scores).toHaveLength(1);
     expect(scores[0]?.wallet).toBe("repeat");
     expect(scores[0]?.rank).toBe(1);
+  });
+});
+
+describe("inspectWalletMarkets", () => {
+  test("returns wallet market rows sorted by realized PnL", () => {
+    const rows = inspectWalletMarkets(
+      "0xabc",
+      [
+        {
+          id: "1",
+          question: "Market one?",
+          conditionId: "m1",
+          slug: "market-one",
+          closed: true,
+          umaResolutionStatus: "resolved",
+        },
+        {
+          id: "2",
+          question: "Market two?",
+          conditionId: "m2",
+          slug: "market-two",
+          closed: true,
+          umaResolutionStatus: "resolved",
+        },
+      ],
+      [
+        position({ wallet: "0xabc", conditionId: "m1", asset: "yes", realizedPnl: 5, totalBought: 100 }),
+        position({ wallet: "0xabc", conditionId: "m2", asset: "yes", realizedPnl: 20, totalBought: 100 }),
+        position({ wallet: "0xdef", conditionId: "m2", asset: "yes", realizedPnl: 100, totalBought: 100 }),
+      ],
+    );
+
+    expect(rows.map((row) => row.conditionId)).toEqual(["m2", "m1"]);
+    expect(rows[0]?.question).toBe("Market two?");
   });
 });
 
